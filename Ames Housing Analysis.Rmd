@@ -1,0 +1,272 @@
+---
+title: "Course Project" 
+subtitle: "R Programming"
+author: "Javier Fong - 100437994" 
+output: 
+  bookdown::html_document2:
+    code_folding: show
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    theme: flatly
+---
+  
+```{r setup, include=FALSE}
+options(scipen = 10000)
+library(rstudioapi)
+setwd(dirname(getActiveDocumentContext()$path)) 
+```
+
+# Description
+
+As my final project for the R Programming class I decided to analyze the *Ames Housing Data set* collected [here](https://www.kaggle.com/c/house-prices-advanced-regression-techniques/data?select=train.csv). 
+
+The data set includes 81 features describing a wide range of characteristics of 1460 home in Ames, Iowa sold between 2006 and 2010. 
+
+For the purpose of this task, we will limit the variables to the following list: 
+  
+Discrete variables: 
+  
+* YearBuilt - Original Construction Year
+* Bedroom - Number of bedrooms 
+* Kitchen - Number of Kitchens 
+* TotRmsAbvGrd - Total number of rooms in the house 
+* MoSold - Month of sale
+* YrSold - Year of sale 
+
+Continuous variables:
+  
+* LotArea - Lot size in Square Foot
+* 1stFlrSF - First Floor square feet
+* 2ndFlrSF - Second Floor square feet
+* SalePrice - Amount of sale
+
+Categorical Variables:
+  
+* LotConfig - Lot configuration
+* HouseStyle - Style of dwelling
+* Exterior1st - Exterior covering on house
+* Heating - Type of heating
+
+# Project 
+
+## Libraries
+
+I'll use the following packages to perform the analysis: 
+
+* **dplyr**: Package for information manipulation.
+* **reshape2**: Package for data shape manipulation.
+* **caret**: Package for machine learning algorithms. CARET stands for **C**lassification **A**nd **RE**gression **T**raining. 
+* **ggplot2**: Graphs and plot functions.  
+* **moments** : Moments, kurtosis and skewness functions. 
+* **ggmosaic** : Mosaic plot functions. 
+
+```{r, message=FALSE}
+library(dplyr)
+library(caret)
+library(reshape2)
+library(ggplot2)
+library(moments)
+library(ggmosaic)
+library(kableExtra)
+```
+
+## Data load 
+
+```{r}
+
+dataset = read.csv("ames.csv")
+
+dataset = dataset %>% 
+  select(
+    LotArea
+    , LotConfig
+    , HouseStyle
+    , YearBuilt
+    , Exterior1st
+    , Heating
+    , FrstFlrSF = X1stFlrSF
+    , ScndFlrSF = X2ndFlrSF
+    , BedroomAbvGr
+    , KitchenAbvGr
+    , TotRmsAbvGrd
+    , MoSold
+    , YrSold
+    , SalePrice
+  )
+
+dataset = dataset %>% unclass() %>% as.data.frame(stringsAsFactors = T)
+dataset %>% str()
+dataset %>% summary()
+```
+
+## Discrete Variables
+
+```{r, message=F}
+disc_vars = dataset %>% 
+  dplyr::select(
+    YearBuilt
+    , BedroomAbvGr
+    , KitchenAbvGr
+    , TotRmsAbvGrd
+    , MoSold
+    , YrSold
+  )
+
+disc_vars %>% 
+  melt() %>% 
+  group_by(variable) %>% 
+  summarise(
+    min_v = min(value)
+    , max_v = max(value)
+    , diff_values = n_distinct(value)
+    , mode_v = which.max(tabulate(value))
+  ) %>% 
+  mutate(across(where(is.numeric), round, 2)) %>% 
+  kbl(
+    format = "html"
+    , caption = "Discrete Variable Summary"
+    , col.names = c(
+      "Variable"
+      , "Min"
+      , "Max"
+      , "# of Values"
+      , "Mode")
+  ) %>% 
+  kable_styling()
+```
+
+With the above summary we get an idea of the nature of the discrete variables in our data set. All of them are discrete ordered variables, meaning they're are ordered by nature. One comes after the other. And with the exception of YearBuilt, all of them have very few distinct values. 
+
+
+```{r, message=F, fig.cap="Discrete Variables Histogram", fig.align='center'}
+disc_vars %>% 
+  melt() %>% 
+  ggplot(
+    aes(x = value, fill = variable) 
+  ) + 
+  geom_histogram() + 
+  facet_wrap(~variable, scale = "free") +
+  theme(legend.position = "none")
+
+```
+
+Now with the help of the histogram plots above, we get a clear idea of the group size of each value in the variables. 
+
+* For the yearBuilt, we see there was a peak in the years between 1950 and 1975, and a more recent one just after the 2000. 
+* In the BedroomsAbvGr variable, we conclude there are 3 main values that contain most of the observations (2,3 and 4 bedrooms).
+* In the KitchenAbvGr variable, as expected, almost all properties have just 1 kitchen with a few exceptions that have 2. 
+* Examining the total number of rooms in the properties, we see it has a larger variability of possible values, but most of them are concentrated between 4 and 8. 
+* For the month sold variable, we conclude that the months between may and august are the most frequent months when properties are sold in Ames. 
+* As for the years of the sale, we have a similar number of observations for each year. This might be by design of the data set. 
+
+## Continuous Variables 
+
+```{r, message=F, fig.cap = "Countinuous Variable Histograms", fig.align= 'center'}
+cont_vars = dataset %>% 
+  dplyr::select(
+    LotArea
+    , FrstFlrSF
+    , ScndFlrSF
+    , SalePrice
+  )
+
+cont_vars %>% 
+  melt() %>% 
+  ggplot(
+    aes(x = value, fill = variable)
+  ) +
+  geom_histogram() +
+  geom_vline(
+    data = cont_vars %>% 
+      melt() %>% 
+      group_by(variable) %>% 
+      summarise(mean_v =  mean(value))
+    , aes(xintercept = mean_v)
+    , linetype = "dashed"
+  ) +
+  facet_wrap(~variable, scale = "free") +
+  theme(
+    legend.position = "none"
+  ) + 
+  ylab("Frequency") + 
+  xlab("Value")
+```
+
+Using the histogram plot we can get a pretty good idea of the frequency of the values for each of  the continuous variables. We notice in the case of the **Lot Area** that almost all the houses have a similar size. We can say so given that a higher percentage of the observation accumulate around the mean line. That's not the case with the **First Floor SqrFt** or the **Sale Price** variables, on which we notice higher dispertion in the values, even though most of the values tend to be smaller than the mean in both cases (we call this a left bias). Finally, it interesting to point out that with this plot we notice that most of the properties do not have a second floor. Notice how a high number of observation of the **Scnd Floor SqrFt** variable accumulate in the 0 value.  
+
+
+```{r, message=F, fig.cap = "Countinuous Variable Boxplot", fig.align= 'center'}
+cont_vars = dataset %>% 
+  dplyr::select(
+    LotArea
+    , FrstFlrSF
+    , ScndFlrSF
+    , SalePrice
+  )
+
+cont_vars %>% 
+  melt() %>% 
+  ggplot(
+    aes(x = value, fill = variable)
+  ) +
+  geom_boxplot() +
+  facet_wrap(~variable, scale = "free") +
+  theme(
+    legend.position = "none"
+  ) 
+```
+
+Now we use the help of boxplots of each variable to describe other characteristics. As expected from the histograms, we notice that the first and third quantile of the LotArea variable (Q1: 7,754, Q3: 11,602) area pretty close to each other, meaning that 50% of our observation are between these values. But we can see that we get a high number of outliers to the right side of the plot, meaning this houses are considerably larger (1.5x the IQR) than the average house. Another noticeable element of the plots is that the mean of the ScndFlrSF variable is pretty close to 0, supporting our observation that most properties do not have a second floor. The rest of the variables do not give us any remarkable new information. 
+
+```{r, message=F}
+cont_vars %>% 
+  melt() %>% 
+  group_by(variable) %>% 
+  summarise(
+    min_v = min(value)
+    , max_v = max(value)
+    , mean_v = mean(value)
+    , sd_v = sd(value)
+    , skweness_v = skewness(value)
+    , kurtosis_v = kurtosis(value)
+  ) %>% 
+  mutate(across(where(is.numeric), round, 2)) %>% 
+  kbl(
+    format = "html"
+    , caption = "Continuous Variable Summary"
+    , col.names = c(
+      "Variable"
+      , "Min"
+      , "Max"
+      , "Mean"
+      , "Standard Dev."
+      , "Skewness"
+      , "Kurtosis")
+  ) %>% 
+  kable_styling()
+```
+
+Now we have a more precise values of our continuous variables using the above estimators. We'll interpret variable by variable: 
+
+* In the case of the lot area, we get a mean value of $10,516.83 ft^2$ with a standard dev. of $9,981.26ft^2$. This sd seems to be influenced by the presence of the outliers observed in the boxplots. This variable also has the highest value of skewness (12.2), meaning most values are centered around the left tail of the distribution, as observed in the histogram. We also have an abnormally large value for the kurtosis in contrast with the rest of the variables. This high value means we're dealing with a *leptokurtic distribution*, meaning we have high concentration of data on the tails. 
+* We can gather the same conclusions from the parameters of the FrstFlrSF and the SalePrice variables. The SD seems to indicate "relative" smaller dispersity in the observations with the mean. Although this variables have skewness and kurtosis values closer to 0 than the LotArea, they're still positive. Meaning most of our data are centered in the left tail of the distribution and a higher concentration of points in the tails than in the center. 
+* The ScndFlrSF has the lower values for the skewness and kurtosis, meaning it might be the closest one resembling a normal distribution. Still, it is not a good match for it. 
+
+
+## Categorical Variables
+
+## Analysis by Group 
+
+## The CARET Package 
+
+### Relationships
+
+### Model
+
+#### Train and Test Set
+
+#### Predictions 
+
+#### Ensemble
+
