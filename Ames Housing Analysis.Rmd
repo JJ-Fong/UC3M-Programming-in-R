@@ -60,6 +60,7 @@ I'll use the following packages to perform the analysis:
 * **ggplot2**: Graphs and plot functions.  
 * **moments** : Moments, kurtosis and skewness functions. 
 * **ggmosaic** : Mosaic plot functions. 
+* **gridExtra** : Plot arrangement functions. 
 
 ```{r, message=FALSE}
 library(dplyr)
@@ -69,6 +70,11 @@ library(ggplot2)
 library(moments)
 library(ggmosaic)
 library(kableExtra)
+library(gridExtra)
+library(waterfalls)
+library(forcats)
+library(caretEnsemble)
+
 ```
 
 ## Data load 
@@ -256,17 +262,280 @@ Now we have a more precise values of our continuous variables using the above es
 
 ## Categorical Variables
 
+```{r, warning = F, message=F, fig.cap="Categorial Variables Distributions", fig.align='center'}
+cat_vars = dataset %>% 
+  dplyr::select_if(is.factor) %>% 
+  dplyr::group_by_all() %>% 
+  dplyr::summarise(cnt = n())
+
+
+
+lotConfigPlot = cat_vars %>% ggplot(aes(x = fct_infreq(LotConfig), fill = LotConfig)) + geom_bar() + ylab("Frequency") + theme(legend.position = 'none') + xlab("LotConfig")
+houseStylePlot = cat_vars %>% ggplot(aes(x = fct_infreq(HouseStyle), fill = HouseStyle )) + geom_bar()+ ylab("Frequency") + theme(legend.position = 'none')+ xlab("HouseStyle")
+exteriorPlot = cat_vars %>% ggplot(aes(x = fct_infreq(Exterior1st), fill = Exterior1st)) + geom_bar()+ ylab("Frequency") + theme(legend.position = 'none',axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+ xlab("Exterior1st")
+heatingPlot = cat_vars %>% ggplot(aes(x = fct_infreq(Heating), fill = Heating)) + geom_bar()+ ylab("Frequency") + theme(legend.position = 'none')+ xlab("Heating")
+
+grid.arrange(
+  lotConfigPlot
+  , houseStylePlot
+  , exteriorPlot
+  , heatingPlot
+  , ncol = 2
+)
+```
+
+From the above plots we can gather the following information: 
+
+* LotConfig: 5 existing groups, but 2 (corner, inside) concentrate most of the information. 
+* HouseStyle: 8 categories, with 3 considerably larger than the others. 
+* Exterior1st: The most diverse variable. 15 group with 10 of them with considerable number of observations.
+* Heating: 6 groups, but just 1 gather almost all the properties. 
+
+```{r, fig.cap="Categorical Variables Accumulated Group Size %", fig.align='center'}
+lotConfig_groupsize = cat_vars$LotConfig %>% 
+  table() %>% 
+  prop.table() %>% 
+  sort(decreasing = T) %>% 
+  data.frame() %>% 
+  mutate(across(where(is.numeric), round, 2)) %>% 
+  waterfall(linetype = 1, fill_by_sign = F, fill_colours = 2:(nrow(.)+1)) + 
+  geom_hline(yintercept = 0.8, linetype = "dashed") + 
+  theme_minimal() + 
+  xlab("LotConfig") + ylab("Accumulated Group Size %")
+
+houseStyle_groupsize = cat_vars$HouseStyle %>% 
+  table() %>% 
+  prop.table() %>% 
+  sort(decreasing = T) %>% 
+  data.frame() %>% 
+  mutate(across(where(is.numeric), round, 2)) %>% 
+  waterfall(linetype = 1, fill_by_sign = F, fill_colours = 2:(nrow(.)+1)) + 
+  geom_hline(yintercept = 0.8, linetype = "dashed") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+ 
+  xlab("HouseStyle") + ylab("Accumulated Group Size %")
+
+exterior_groupsize = cat_vars$Exterior1st %>% 
+  table() %>% 
+  prop.table() %>% 
+  sort(decreasing = T) %>% 
+  data.frame() %>% 
+  mutate(across(where(is.numeric), round, 2)) %>% 
+  waterfall(linetype = 1, fill_by_sign = F, fill_colours = 2:(nrow(.)+1)) + 
+  geom_hline(yintercept = 0.8, linetype = "dashed") + 
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+ 
+  xlab("Exterior1St") + ylab("Accumulated Group Size %")
+
+heating_groupsize = cat_vars$Heating %>% 
+  table() %>% 
+  prop.table() %>% 
+  sort(decreasing = T) %>% 
+  data.frame() %>% 
+  mutate(across(where(is.numeric), round, 2)) %>% 
+  waterfall(linetype = 1, fill_by_sign = F, fill_colours = 2:(nrow(.)+1)) + 
+  geom_hline(yintercept = 0.8, linetype = "dashed") + 
+  theme_minimal()+ 
+  xlab("Heating") + ylab("Accumulated Group Size %")
+
+grid.arrange(
+  lotConfig_groupsize
+  , houseStyle_groupsize
+  , exterior_groupsize
+  , heating_groupsize
+  , ncol = 2
+)
+```
+
+With the above waterfall plot we can know how many of the groups account for 80% of our observations. In the case of **LotConfig** we just need the 2 larger groups, *Inside* and *Corner* to group 76% of all the properties in our data set. In **HouseStyle** we need 4 out of the 8 groups to get 81% of the observations. The **Exterior1st**, as the most distributed variable, need 7/15 to sum up the 80% of the entries. At last we see that 84% of the observations in the **Heating** variable belong to the *GasA* category. 
+
 ## Analysis by Group 
+
+```{r}
+table(dataset$HouseStyle) %>% sort(decreasing = T )
+```
+
+
+Now, we'll analyze each group in the *HouseStyle* variable. From the previous section we know that the variable is divided in 8 different groups with the following distribution: 
+
+* *1Story*: Properties with just 1 floor. 756 (28% of total) observations. 
+* *2Story*: Properties with 2 floors. 445 obs (21%). 
+* *1.5Fin*: Properties with the 2nd floor finished but unused. 154 obs (20%).
+* *SLvl*: Split level. 65 obs (12%). 
+* *SFoyer*: Splot foyer. 37 obs (8%). 
+* *1.5Unf*: Properties with the 2nd floor under construction. 14 obs (~4%). 
+* *2.5Unf*: Properties with the 3rd floor under construction. 11 obs (~4%). 
+* *2.5Fin*: Properties with the 3rd floor finished but unused. 8 obs (~3%). 
+
+```{r, fig.align = 'center', fig.cap="Continuous Variables Density by HouseStyle Group"}
+hsdataset = dataset %>% 
+  dplyr::select_if(names(.)=="HouseStyle" | sapply(., is.numeric))
+
+hsdataset %>% 
+  select(HouseStyle, LotArea, FrstFlrSF, ScndFlrSF, SalePrice) %>% 
+  melt(id = c("HouseStyle")) %>% 
+  ggplot(
+    aes( 
+      x = value 
+      , col = HouseStyle
+    )
+  )  + 
+  geom_density() + 
+  facet_wrap(~variable, scale = "free")
+```
+
+First we take a look at the densities of the our continuous variables for each of the house style groups. For the lotArea and the ScndFlrSF variables we cannot get a clear view of any difference in the densities given the scale of the plots. Now for the FrstFlrSF variable, we do see some variation on each group. The *1.5Unf* sees to have the highest concentration of points near the $1000ft^2$. Then the rest of groups look like they have a more even distribution. It is interesting to notice that some of them, as *SLvl* and *2.5Fin* seem to be bimodal distributions, meaning there are 2 high concentration values of first floor area. For the Sale price, it is difficult to draw any conclusion from the densities of each group. It is still worth mentioning that there is a mode for *2.5Fin* group pretty far right in the plot. This is actually expected, given that this category is possibly the one with larger construction area, raising the price of this properties. 
+
+
+```{r, fig.align = 'center', fig.cap="Continuous Variables Boxplot by HouseStyle Group"}
+hsdataset %>% 
+  select(HouseStyle, LotArea, FrstFlrSF, ScndFlrSF, SalePrice) %>% 
+  melt(id = c("HouseStyle")) %>% 
+  ggplot(
+    aes( 
+      x = value 
+      , col = HouseStyle
+    )
+  )  + 
+  geom_boxplot(varwidth = T) + 
+  facet_wrap(~variable, scale = "free")
+```
+
+Now we use to the boxplots to get a more concise idea of the summary of the groups. Notice that the width of each box is directly proportional to the group size, meaning larger groups have wider boxes. Given the nature of our continuous variables, we should not expect to find any grand insight by house style group. Three out of the 4 variables measure floor area or the area on which the propertie is build. These variables are independent of the distribution of the house. 
+
+That been said, the fourth variable, *SalePrice*, should have some relationship to the house distribution. In its boxplot we notice that the highest sold properties are those with 2 stories. Then we can compare properties with the same number of floors, but changing if they're still under construction. We see that those properties with finalized constructions (*1.5Fin* & *2.5Fin*) sell for highest prices than those with unfinished works (*1.5Unf* & *2.5Unf*) 
+
+
+```{r, fig.align = 'center', fig.cap="Continuous Variables Scattered by HouseStyle Group and Year Built"}
+hsdataset %>% 
+  select(HouseStyle, YearBuilt, LotArea, FrstFlrSF, ScndFlrSF, SalePrice) %>% 
+  melt(id = c("HouseStyle", "YearBuilt")) %>% 
+  ggplot(
+    aes( 
+      y = value 
+      , x = YearBuilt
+      , col = HouseStyle
+    )
+  )  + 
+  geom_point(size = 0.5) + 
+  facet_wrap(~variable, scale = "free")
+
+
+```
+
+At last we tried to see if the there's been any interesting development though the years in this groups. We can see that the lot area has remained relatively the same for the last 100 years. But do notice that the construction of *1Story* houses has become more frequent in the last 50 years. Keeping in this same line, this *1Story* houses have seen an upward trend in its size sice the 1980's. We see the same pattern for the *2Story* houses, but with in more recent years. They become more often constructed in the early 2000's, and keep getting a larger second floor. At last we see an increment in sale price for all groups as the construction in more recent. 
 
 ## The CARET Package 
 
-### Relationships
+Now we'll use the caret package to make some predictions over our data set. 
 
 ### Model
 
 #### Train and Test Set
 
+First we'll divide our data set into a training and testing sets so we have a partition to train our model and a untouched one to test its performance. 
+
+```{r}
+set.seed(100)
+train.ind = createDataPartition(
+  dataset$HouseStyle
+  , p = 0.8 
+  , list = F
+  , times = 1 
+)
+
+trainset = dataset[train.ind,]
+testset = dataset[-train.ind,]
+
+```
+
+Our train and test set chosen at random have the following sizes: 
+
+* Train Set: `r nrow(trainset)` rows.
+* Test Set: `r nrow(testset)` rows.
+
 #### Predictions 
 
+##### Random Forest
+
+```{r}
+rf_fit = train(
+  HouseStyle ~ . 
+  , data = trainset 
+  , method = "rf"
+)
+
+plot(
+  varImp(rf_fit)
+)
+
+```
+We build a random forest model to predict the *HouseStyle* base on all the other variables on our data set. From the above plot we notice that the most relevant variables the model found to predict this values are **ScndFlrSF**, **YearBuilt** and **FrstFlSF** above all others. 
+
+Now  let's see how this model performs against unknown data. 
+
+```{r}
+confusionMatrix(
+  reference = as.factor(testset$HouseStyle)
+  , as.factor(predict(rf_fit, testset))
+)
+```
+
+This model got an accuracy of 86% with a 95% confidence interval of 82% to 90%. That's an overall good model. But we can go even deeper and analize the performance of the model to predict each group. We see that the model is actually really good at finding 1Story of 2Story houses (high sensitivity for those categories). That's to be expected given that those are the 2 larger groups on our data set. On the contrary, the model is  pretty bad at finding properties that belong to all the other categories. For example, out of the 7 *SFoyer* properties in the test set, 6 got classified as *1Story* houses. The same with the *SLvl* group, where out of the 13 observations in the test set, 8 got classified as *1Story* and 3 as *2Story*. 
+
+##### Naive Bayes
+
+```{r, warning = F}
+nb_fit = train(
+  x = trainset %>% select(-HouseStyle)
+  , y = trainset$HouseStyle
+  , data = trainset 
+  , method = "nb"
+)
+
+confusionMatrix(
+  reference = as.factor(testset$HouseStyle)
+  , as.factor(predict(nb_fit, testset))
+)
+```
+
+```{r, warning=F}
+svm_fit = train(
+    HouseStyle ~ . 
+  , data = trainset 
+  , method = "svmLinear"
+  , preProcess = c("center", "scale")
+)
+
+confusionMatrix(
+  reference = as.factor(testset$HouseStyle)
+  , as.factor(predict(svm_fit, testset))
+)
+```
+
+
 #### Ensemble
+
+```{r, warning = F}
+trainControl = trainControl(
+  method = "repeatedcv"
+  , number = 5
+  , repeats = 3
+  , savePredictions = "final"
+  , classProbs = T
+)
+
+algList = c("rf", "svmLinear")
+
+models = caretList(
+  HouseStyle ~ .
+  , data = trainset 
+  , trControl = trainControl()
+  , methodList = algList
+  , preProcess = c("center", "scale")
+)
+
+results = resamples(models)
+summary(results)
+```
 
